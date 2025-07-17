@@ -6,35 +6,12 @@
         <meta name="viewport" content="initial-scale=1,user-scalable=no,maximum-scale=1,width=device-width">
         <meta name="mobile-web-app-capable" content="yes">
         <meta name="apple-mobile-web-app-capable" content="yes">
-        <link rel="stylesheet" href="./resources/ol.css">
-        <link rel="stylesheet" href="resources/fontawesome-all.min.css">
-        <link href="resources/photon-geocoder-autocomplete.min.css" rel="stylesheet">
-        <link rel="stylesheet" href="./resources/ol-layerswitcher.css">
-        <link rel="stylesheet" href="./resources/qgis2web.css">
-        <style>
-        html, body {
-            background-color: #ffffff;
-        }
-        .ol-control > * {
-            background-color: #f8f8f8!important;
-            color: #444444!important;
-            border-radius: 0px;
-        }
-        .ol-attribution a, .gcd-gl-input::placeholder, .search-layer-input-search::placeholder {
-            color: #444444!important;
-        }
-        .search-layer-input-search {
-            background-color: #f8f8f8!important;
-        }
-        .ol-control > *:focus, .ol-control >*:hover {
-            background-color: rgba(248, 248, 248, 0.7)!important;
-        } 
-        .ol-control {
-            background-color: rgba(255,255,255,.4) !important;
-            padding: 2px !important;
-        } 
-        </style>
-
+        <link rel="stylesheet" href="css/leaflet.css">
+        <link rel="stylesheet" href="css/L.Control.Layers.Tree.css">
+        <link rel="stylesheet" href="css/qgis2web.css">
+        <link rel="stylesheet" href="css/fontawesome-all.min.css">
+        <link rel="stylesheet" href="css/leaflet.photon.css">
+        <link rel="stylesheet" href="css/leaflet-measure.css">
         <style>
         html, body, #map {
             width: 100%;
@@ -47,20 +24,496 @@
     </head>
     <body>
         <div id="map">
-            <div id="popup" class="ol-popup">
-                <a href="#" id="popup-closer" class="ol-popup-closer"></a>
-                <div id="popup-content"></div>
-            </div>
         </div>
-        <script src="resources/qgis2web_expressions.js"></script>
-        <script src="./resources/functions.js"></script>
-        <script src="./resources/ol.js"></script>
-        <script src="./resources/ol-layerswitcher.js"></script>
-        <script src="resources/photon-geocoder-autocomplete.min.js"></script>
-        <script src="layers/abucaybataan_1.js"></script><script src="layers/bataan_transmissiontowers_2.js"></script>
-        <script src="styles/abucaybataan_1_style.js"></script><script src="styles/bataan_transmissiontowers_2_style.js"></script>
-        <script src="./layers/layers.js" type="text/javascript"></script> 
-        <script src="./resources/Autolinker.min.js"></script>
-        <script src="./resources/qgis2web.js"></script>
+        <script src="js/qgis2web_expressions.js"></script>
+        <script src="js/leaflet.js"></script>
+        <script src="js/L.Control.Layers.Tree.min.js"></script>
+        <script src="js/multi-style-layer.js"></script>
+        <script src="js/leaflet.rotatedMarker.js"></script>
+        <script src="js/leaflet.pattern.js"></script>
+        <script src="js/leaflet-hash.js"></script>
+        <script src="js/Autolinker.min.js"></script>
+        <script src="js/rbush.min.js"></script>
+        <script src="js/labelgun.min.js"></script>
+        <script src="js/labels.js"></script>
+        <script src="js/leaflet.photon.js"></script>
+        <script src="js/leaflet-measure.js"></script>
+        <script src="data/NAPOCORProperty_3.js"></script>
+        <script src="data/TransmissionLinesROW_4.js"></script>
+        <script src="data/Intersection_5.js"></script>
+        <script src="data/TransmissionLines_6.js"></script>
+        <script src="data/TransmissionTowers_7.js"></script>
+        <script>
+        var highlightLayer;
+        function highlightFeature(e) {
+            highlightLayer = e.target;
+            highlightLayer.openPopup();
+        }
+        var map = L.map('map', {
+            zoomControl:false, maxZoom:20, minZoom:1
+        })
+        var hash = new L.Hash(map);
+        map.attributionControl.setPrefix('<a href="https://github.com/tomchadwin/qgis2web" target="_blank">qgis2web</a> &middot; <a href="https://leafletjs.com" title="A JS library for interactive maps">Leaflet</a> &middot; <a href="https://qgis.org">QGIS</a>');
+        var autolinker = new Autolinker({truncate: {length: 30, location: 'smart'}});
+        // remove popup's row if "visible-with-data"
+        function removeEmptyRowsFromPopupContent(content, feature) {
+         var tempDiv = document.createElement('div');
+         tempDiv.innerHTML = content;
+         var rows = tempDiv.querySelectorAll('tr');
+         for (var i = 0; i < rows.length; i++) {
+             var td = rows[i].querySelector('td.visible-with-data');
+             var key = td ? td.id : '';
+             if (td && td.classList.contains('visible-with-data') && feature.properties[key] == null) {
+                 rows[i].parentNode.removeChild(rows[i]);
+             }
+         }
+         return tempDiv.innerHTML;
+        }
+        // add class to format popup if it contains media
+		function addClassToPopupIfMedia(content, popup) {
+			var tempDiv = document.createElement('div');
+			tempDiv.innerHTML = content;
+			if (tempDiv.querySelector('td img')) {
+				popup._contentNode.classList.add('media');
+					// Delay to force the redraw
+					setTimeout(function() {
+						popup.update();
+					}, 10);
+			} else {
+				popup._contentNode.classList.remove('media');
+			}
+		}
+        var title = new L.Control({'position':'topright'});
+        title.onAdd = function (map) {
+            this._div = L.DomUtil.create('div', 'info');
+            this.update();
+            return this._div;
+        };
+        title.update = function () {
+            this._div.innerHTML = '<h2>Bataan Transmission Towers</h2>';
+        };
+        title.addTo(map);
+        var abstract = new L.Control({'position':'topright'});
+        abstract.onAdd = function (map) {
+            this._div = L.DomUtil.create('div',
+            'leaflet-control abstract');
+            this._div.id = 'abstract'
+
+                abstract.show();
+                return this._div;
+            };
+            abstract.show = function () {
+                this._div.classList.remove("abstract");
+                this._div.classList.add("abstractUncollapsed");
+                this._div.innerHTML = 'This is a sample map for NPC\'s Right-of-Way Use Case';
+        };
+        abstract.addTo(map);
+        var zoomControl = L.control.zoom({
+            position: 'topleft'
+        }).addTo(map);
+        var measureControl = new L.Control.Measure({
+            position: 'topleft',
+            primaryLengthUnit: 'meters',
+            secondaryLengthUnit: 'kilometers',
+            primaryAreaUnit: 'sqmeters',
+            secondaryAreaUnit: 'hectares'
+        });
+        measureControl.addTo(map);
+        document.getElementsByClassName('leaflet-control-measure-toggle')[0].innerHTML = '';
+        document.getElementsByClassName('leaflet-control-measure-toggle')[0].className += ' fas fa-ruler';
+        var bounds_group = new L.featureGroup([]);
+        function setBounds() {
+            if (bounds_group.getLayers().length) {
+                map.fitBounds(bounds_group.getBounds());
+            }
+        }
+        map.createPane('pane_GoogleSatellite_0');
+        map.getPane('pane_GoogleSatellite_0').style.zIndex = 400;
+        var layer_GoogleSatellite_0 = L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+            pane: 'pane_GoogleSatellite_0',
+            opacity: 1.0,
+            attribution: '',
+            minZoom: 1,
+            maxZoom: 20,
+            minNativeZoom: 0,
+            maxNativeZoom: 18
+        });
+        layer_GoogleSatellite_0;
+        map.addLayer(layer_GoogleSatellite_0);
+        map.createPane('pane_BataanRiver_NDWI_1');
+        map.getPane('pane_BataanRiver_NDWI_1').style.zIndex = 401;
+        var img_BataanRiver_NDWI_1 = 'data/BataanRiver_NDWI_1.png';
+        var img_bounds_BataanRiver_NDWI_1 = [[14.651816493374259,120.53548266554225],[14.701665661915364,120.56897511603697]];
+        var layer_BataanRiver_NDWI_1 = new L.imageOverlay(img_BataanRiver_NDWI_1,
+                                              img_bounds_BataanRiver_NDWI_1,
+                                              {pane: 'pane_BataanRiver_NDWI_1'});
+        bounds_group.addLayer(layer_BataanRiver_NDWI_1);
+        map.addLayer(layer_BataanRiver_NDWI_1);
+        map.createPane('pane_BataanRiver_NDTI_2');
+        map.getPane('pane_BataanRiver_NDTI_2').style.zIndex = 402;
+        var img_BataanRiver_NDTI_2 = 'data/BataanRiver_NDTI_2.png';
+        var img_bounds_BataanRiver_NDTI_2 = [[14.651816493374259,120.53548266554225],[14.701665661915364,120.56897511603697]];
+        var layer_BataanRiver_NDTI_2 = new L.imageOverlay(img_BataanRiver_NDTI_2,
+                                              img_bounds_BataanRiver_NDTI_2,
+                                              {pane: 'pane_BataanRiver_NDTI_2'});
+        bounds_group.addLayer(layer_BataanRiver_NDTI_2);
+        map.addLayer(layer_BataanRiver_NDTI_2);
+        function pop_NAPOCORProperty_3(feature, layer) {
+            layer.on({
+                mouseout: function(e) {
+                    if (typeof layer.closePopup == 'function') {
+                        layer.closePopup();
+                    } else {
+                        layer.eachLayer(function(feature){
+                            feature.closePopup()
+                        });
+                    }
+                },
+                mouseover: highlightFeature,
+            });
+            var popupContent = '<table>\
+                    <tr>\
+                        <th scope="row">Name</th>\
+                        <td class="visible-with-data" id="Name">' + (feature.properties['Name'] !== null ? autolinker.link(String(feature.properties['Name']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_NAPOCORProperty_3_0() {
+            return {
+                pane: 'pane_NAPOCORProperty_3',
+                opacity: 1,
+                color: 'rgba(21,255,251,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 3.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(174,249,255,0.5333333333333333)',
+                interactive: true,
+            }
+        }
+        map.createPane('pane_NAPOCORProperty_3');
+        map.getPane('pane_NAPOCORProperty_3').style.zIndex = 403;
+        map.getPane('pane_NAPOCORProperty_3').style['mix-blend-mode'] = 'normal';
+        var layer_NAPOCORProperty_3 = new L.geoJson(json_NAPOCORProperty_3, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_NAPOCORProperty_3',
+            layerName: 'layer_NAPOCORProperty_3',
+            pane: 'pane_NAPOCORProperty_3',
+            onEachFeature: pop_NAPOCORProperty_3,
+            style: style_NAPOCORProperty_3_0,
+        });
+        bounds_group.addLayer(layer_NAPOCORProperty_3);
+        map.addLayer(layer_NAPOCORProperty_3);
+        function pop_TransmissionLinesROW_4(feature, layer) {
+            layer.on({
+                mouseout: function(e) {
+                    if (typeof layer.closePopup == 'function') {
+                        layer.closePopup();
+                    } else {
+                        layer.eachLayer(function(feature){
+                            feature.closePopup()
+                        });
+                    }
+                },
+                mouseover: highlightFeature,
+            });
+            var popupContent = '<table>\
+                    <tr>\
+                        <th scope="row">id</th>\
+                        <td class="visible-with-data" id="id">' + (feature.properties['id'] !== null ? autolinker.link(String(feature.properties['id']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_TransmissionLinesROW_4_0() {
+            return {
+                pane: 'pane_TransmissionLinesROW_4',
+                opacity: 1,
+                color: 'rgba(229,123,3,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 2.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(255,211,90,0.3254901960784314)',
+                interactive: true,
+            }
+        }
+        map.createPane('pane_TransmissionLinesROW_4');
+        map.getPane('pane_TransmissionLinesROW_4').style.zIndex = 404;
+        map.getPane('pane_TransmissionLinesROW_4').style['mix-blend-mode'] = 'normal';
+        var layer_TransmissionLinesROW_4 = new L.geoJson(json_TransmissionLinesROW_4, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_TransmissionLinesROW_4',
+            layerName: 'layer_TransmissionLinesROW_4',
+            pane: 'pane_TransmissionLinesROW_4',
+            onEachFeature: pop_TransmissionLinesROW_4,
+            style: style_TransmissionLinesROW_4_0,
+        });
+        bounds_group.addLayer(layer_TransmissionLinesROW_4);
+        map.addLayer(layer_TransmissionLinesROW_4);
+        function pop_Intersection_5(feature, layer) {
+            layer.on({
+                mouseout: function(e) {
+                    if (typeof layer.closePopup == 'function') {
+                        layer.closePopup();
+                    } else {
+                        layer.eachLayer(function(feature){
+                            feature.closePopup()
+                        });
+                    }
+                },
+                mouseover: highlightFeature,
+            });
+            var popupContent = '<table>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['Name'] !== null ? autolinker.link(String(feature.properties['Name']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">area</th>\
+                        <td>' + (feature.properties['area'] !== null ? autolinker.link(String(feature.properties['area']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_Intersection_5_0() {
+            return {
+                pane: 'pane_Intersection_5',
+                interactive: true,
+            }
+        }
+        function style_Intersection_5_1() {
+            return {
+                pane: 'pane_Intersection_5',
+                opacity: 1,
+                color: 'rgba(247,225,55,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fillOpacity: 0,
+                interactive: true,
+            }
+        }
+        map.createPane('pane_Intersection_5');
+        map.getPane('pane_Intersection_5').style.zIndex = 405;
+        map.getPane('pane_Intersection_5').style['mix-blend-mode'] = 'normal';
+        var layer_Intersection_5 = new L.geoJson.multiStyle(json_Intersection_5, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_Intersection_5',
+            layerName: 'layer_Intersection_5',
+            pane: 'pane_Intersection_5',
+            onEachFeature: pop_Intersection_5,
+            styles: [style_Intersection_5_0,style_Intersection_5_1,]
+        });
+        bounds_group.addLayer(layer_Intersection_5);
+        map.addLayer(layer_Intersection_5);
+        function pop_TransmissionLines_6(feature, layer) {
+            layer.on({
+                mouseout: function(e) {
+                    if (typeof layer.closePopup == 'function') {
+                        layer.closePopup();
+                    } else {
+                        layer.eachLayer(function(feature){
+                            feature.closePopup()
+                        });
+                    }
+                },
+                mouseover: highlightFeature,
+            });
+            var popupContent = '<table>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['id'] !== null ? autolinker.link(String(feature.properties['id']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name'] !== null ? autolinker.link(String(feature.properties['name']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_TransmissionLines_6_0() {
+            return {
+                pane: 'pane_TransmissionLines_6',
+                opacity: 1,
+                color: 'rgba(255,0,40,1.0)',
+                dashArray: '',
+                lineCap: 'square',
+                lineJoin: 'bevel',
+                weight: 2.0,
+                fillOpacity: 0,
+                interactive: false,
+            }
+        }
+        map.createPane('pane_TransmissionLines_6');
+        map.getPane('pane_TransmissionLines_6').style.zIndex = 406;
+        map.getPane('pane_TransmissionLines_6').style['mix-blend-mode'] = 'normal';
+        var layer_TransmissionLines_6 = new L.geoJson(json_TransmissionLines_6, {
+            attribution: '',
+            interactive: false,
+            dataVar: 'json_TransmissionLines_6',
+            layerName: 'layer_TransmissionLines_6',
+            pane: 'pane_TransmissionLines_6',
+            onEachFeature: pop_TransmissionLines_6,
+            style: style_TransmissionLines_6_0,
+        });
+        bounds_group.addLayer(layer_TransmissionLines_6);
+        map.addLayer(layer_TransmissionLines_6);
+        function pop_TransmissionTowers_7(feature, layer) {
+            layer.on({
+                mouseout: function(e) {
+                    if (typeof layer.closePopup == 'function') {
+                        layer.closePopup();
+                    } else {
+                        layer.eachLayer(function(feature){
+                            feature.closePopup()
+                        });
+                    }
+                },
+                mouseover: highlightFeature,
+            });
+            var popupContent = '<table>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_TransmissionTowers_7_0() {
+            return {
+                pane: 'pane_TransmissionTowers_7',
+                opacity: 1,
+                color: 'rgba(255,240,52,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 3.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(125,139,143,0.0)',
+                interactive: true,
+            }
+        }
+        map.createPane('pane_TransmissionTowers_7');
+        map.getPane('pane_TransmissionTowers_7').style.zIndex = 407;
+        map.getPane('pane_TransmissionTowers_7').style['mix-blend-mode'] = 'normal';
+        var layer_TransmissionTowers_7 = new L.geoJson(json_TransmissionTowers_7, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_TransmissionTowers_7',
+            layerName: 'layer_TransmissionTowers_7',
+            pane: 'pane_TransmissionTowers_7',
+            onEachFeature: pop_TransmissionTowers_7,
+            style: style_TransmissionTowers_7_0,
+        });
+        bounds_group.addLayer(layer_TransmissionTowers_7);
+        map.addLayer(layer_TransmissionTowers_7);
+        const url = {"Nominatim": "https://nominatim.openstreetmap.org/search?format=geojson&addressdetails=1&",
+        "BAN": "https://api-adresse.data.gouv.fr/search/?"}
+        var photonControl = L.control.photon({
+            url: url["Nominatim"],
+            feedbackLabel: '',
+            position: 'topleft',
+            includePosition: true,
+            initial: true,
+            // resultsHandler: myHandler,
+        }).addTo(map);
+        photonControl._container.childNodes[0].style.borderRadius="10px"
+        // Create a variable to store the geoJSON data
+        var x = null;
+        // Create a variable to store the marker
+        var marker = null;
+        // Add an event listener to the Photon control to create a marker from the returned geoJSON data
+        var z = null;
+        photonControl.on('selected', function(e) {
+            console.log(photonControl.search.resultsContainer);
+            if (x != null) {
+                map.removeLayer(obj3.marker);
+                map.removeLayer(x);
+            }
+            obj2.gcd = e.choice;
+            x = L.geoJSON(obj2.gcd).addTo(map);
+            var label = typeof obj2.gcd.properties.label === 'undefined' ? obj2.gcd.properties.display_name : obj2.gcd.properties.label;
+            obj3.marker = L.marker(x.getLayers()[0].getLatLng()).bindPopup(label).addTo(map);
+            map.setView(x.getLayers()[0].getLatLng(), 17);
+            z = typeof e.choice.properties.label === 'undefined'? e.choice.properties.display_name : e.choice.properties.label;
+            console.log(e);
+            e.target.input.value = z;
+        });
+        var search = document.getElementsByClassName("leaflet-photon leaflet-control")[0];
+        search.classList.add("leaflet-control-search")
+        search.style.display = "flex";
+        search.style.backgroundColor="rgba(255,255,255,0.5)" 
+
+        // Créer le nouvel élément bouton
+        var button = document.createElement("div");
+        button.id = "gcd-button-control";
+        button.className = "gcd-gl-btn fa fa-search search-button";
+
+        // Ajouter le bouton à l'élément parent
+        search.insertBefore(button, search.firstChild);
+        last = search.lastChild;
+        last.style.display = "none";
+        button.addEventListener("click", function (e) {
+            if (last.style.display === "none") {
+                last.style.display = "block";
+            } else {
+                last.style.display = "none";
+            }
+        });
+        var overlaysTree = [
+            {label: '<img src="legend/TransmissionTowers_7.png" /> Transmission Towers', layer: layer_TransmissionTowers_7},
+            {label: '<img src="legend/TransmissionLines_6.png" /> Transmission Lines', layer: layer_TransmissionLines_6},
+            {label: '<img src="legend/Intersection_5.png" /> Intersection', layer: layer_Intersection_5},
+            {label: '<img src="legend/TransmissionLinesROW_4.png" /> Transmission Lines ROW', layer: layer_TransmissionLinesROW_4},
+            {label: '<img src="legend/NAPOCORProperty_3.png" /> NAPOCOR Property', layer: layer_NAPOCORProperty_3},
+            {label: "Bataan River_NDTI", layer: layer_BataanRiver_NDTI_2},
+            {label: "Bataan River_NDWI", layer: layer_BataanRiver_NDWI_1},
+            {label: "Google Satellite", layer: layer_GoogleSatellite_0, radioGroup: 'bm' },]
+        var lay = L.control.layers.tree(null, overlaysTree,{
+            //namedToggle: true,
+            //selectorBack: false,
+            //closedSymbol: '&#8862; &#x1f5c0;',
+            //openedSymbol: '&#8863; &#x1f5c1;',
+            //collapseAll: 'Collapse all',
+            //expandAll: 'Expand all',
+            collapsed: true,
+        });
+        lay.addTo(map);
+        setBounds();
+        L.ImageOverlay.include({
+            getBounds: function () {
+                return this._bounds;
+            }
+        });
+        </script>
     </body>
 </html>
